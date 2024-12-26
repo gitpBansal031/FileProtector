@@ -259,6 +259,6 @@ public class main extends JFrame {
     }
 
     public static void main(String[] args) {
-        SwingUtilities.invokeLater(() -> new ImageSearchGUI().setVisible(true));
+        SwingUtilities.invokeLater(() -> new main().setVisible(true));
     }
 }
