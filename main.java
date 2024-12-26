@@ -11,7 +11,7 @@ import java.util.Base64;
 public class main extends JFrame {
     private JTextField keyField;
     private JLabel imageLabel;
-    private JLabel folderLabel;
+    private JPanel filesPanel;
     private File[] selectedFiles;
     private JRadioButton encryptButton;
     private JRadioButton decryptButton;
@@ -43,8 +43,8 @@ public class main extends JFrame {
 
         overrideCheckBox = new JCheckBox("Override Existing Files");
 
-        folderLabel = new JLabel();
-        folderLabel.setIcon(UIManager.getIcon("FileView.directoryIcon"));
+        filesPanel = new JPanel();
+        filesPanel.setLayout(new FlowLayout());
 
         topPanel.add(keyLabel);
         topPanel.add(keyField);
@@ -56,10 +56,10 @@ public class main extends JFrame {
         topPanel.add(operateButton);
 
         add(topPanel, BorderLayout.NORTH);
-        add(folderLabel, BorderLayout.WEST);
+        add(filesPanel, BorderLayout.CENTER);
 
         imageLabel = new JLabel();
-        add(new JScrollPane(imageLabel), BorderLayout.CENTER);
+        add(new JScrollPane(imageLabel), BorderLayout.EAST);
 
         randomKeyButton.addActionListener(e -> keyField.setText(generateRandomKey()));
 
@@ -69,9 +69,7 @@ public class main extends JFrame {
             fileChooser.setFileSelectionMode(JFileChooser.FILES_AND_DIRECTORIES);
             if (fileChooser.showOpenDialog(null) == JFileChooser.APPROVE_OPTION) {
                 selectedFiles = fileChooser.getSelectedFiles();
-                if (selectedFiles.length > 0) {
-                    folderLabel.setText(selectedFiles[0].getParent());
-                }
+                displaySelectedFiles();
             }
         });
 
@@ -84,6 +82,21 @@ public class main extends JFrame {
             showProgressDialog();
             new Thread(() -> operate(key, encryptButton.isSelected(), overrideCheckBox.isSelected())).start();
         });
+    }
+
+    private void displaySelectedFiles() {
+        filesPanel.removeAll();
+        for (File file : selectedFiles) {
+            JLabel fileLabel = new JLabel(file.getName());
+            if (file.isDirectory()) {
+                fileLabel.setIcon(UIManager.getIcon("FileView.directoryIcon"));
+            } else {
+                fileLabel.setIcon(UIManager.getIcon("FileView.fileIcon"));
+            }
+            filesPanel.add(fileLabel);
+        }
+        filesPanel.revalidate();
+        filesPanel.repaint();
     }
 
     private void displayImage(File file) {
@@ -123,6 +136,10 @@ public class main extends JFrame {
                 progressDialog.dispose();
             });
         } catch (Exception e) {
+            SwingUtilities.invokeLater(() -> {
+                JOptionPane.showMessageDialog(progressDialog, "Decryption failed: Incorrect key", "Error", JOptionPane.ERROR_MESSAGE);
+                progressDialog.dispose();
+            });
             e.printStackTrace();
         }
     }
@@ -209,6 +226,7 @@ public class main extends JFrame {
                     e.printStackTrace();
                 }
             }
+            SwingUtilities.invokeLater(() -> progressDialog.dispose());
         }).start();
 
         progressDialog.setVisible(true);
