@@ -1,97 +1,179 @@
+
+import javax.crypto.Cipher;
+import javax.crypto.KeyGenerator;
+import javax.crypto.SecretKey;
+import javax.crypto.spec.SecretKeySpec;
 import javax.swing.*;
 import java.awt.*;
 import java.io.*;
-import java.security.*;
-import javax.crypto.*;
-import javax.crypto.spec.SecretKeySpec;
+import java.security.NoSuchAlgorithmException;
+import java.util.Base64;
 
-public class main {
-    // Encrypt or Decrypt file using AES
-    static void operateAES(String key, boolean isEncrypt) {
-        JFileChooser fileChooser = new JFileChooser();
-        fileChooser.showOpenDialog(null);
-        File file = fileChooser.getSelectedFile();
+public class main extends JFrame {
+    private JTextField keyField;
+    private JLabel imageLabel;
+    private File selectedFile;
+    private JRadioButton encryptButton;
+    private JRadioButton decryptButton;
+    private JCheckBox overrideCheckBox;
 
-        try {
-            // Generate AES key
-            SecretKeySpec secretKey = new SecretKeySpec(key.getBytes(), "AES");
+    public main() {
+        setTitle("Image Search GUI");
+        setSize(600, 400);
+        setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
+        setLayout(new BorderLayout());
 
-            // Initialize cipher for encryption or decryption
-            Cipher cipher = Cipher.getInstance("AES");
-            if (isEncrypt) {
-                cipher.init(Cipher.ENCRYPT_MODE, secretKey);
-            } else {
-                cipher.init(Cipher.DECRYPT_MODE, secretKey);
+        JPanel topPanel = new JPanel();
+        topPanel.setLayout(new FlowLayout());
+
+        JLabel keyLabel = new JLabel("Key:");
+        keyField = new JTextField(16);
+        JButton randomKeyButton = new JButton("Randomize Key");
+        JButton selectFileButton = new JButton("Select File");
+        JButton operateButton = new JButton("Operate");
+        JButton loadKeyButton = new JButton("Load Key");
+
+        encryptButton = new JRadioButton("Encrypt");
+        decryptButton = new JRadioButton("Decrypt");
+        ButtonGroup group = new ButtonGroup();
+        group.add(encryptButton);
+        group.add(decryptButton);
+        encryptButton.setSelected(true);
+
+        overrideCheckBox = new JCheckBox("Override Existing File");
+
+        topPanel.add(keyLabel);
+        topPanel.add(keyField);
+        topPanel.add(randomKeyButton);
+        topPanel.add(selectFileButton);
+        topPanel.add(encryptButton);
+        topPanel.add(decryptButton);
+        topPanel.add(overrideCheckBox);
+        topPanel.add(operateButton);
+        topPanel.add(loadKeyButton);
+
+        add(topPanel, BorderLayout.NORTH);
+
+        imageLabel = new JLabel();
+        add(new JScrollPane(imageLabel), BorderLayout.CENTER);
+
+        randomKeyButton.addActionListener(e -> keyField.setText(generateRandomKey()));
+
+        selectFileButton.addActionListener(e -> {
+            JFileChooser fileChooser = new JFileChooser();
+            if (fileChooser.showOpenDialog(null) == JFileChooser.APPROVE_OPTION) {
+                selectedFile = fileChooser.getSelectedFile();
+                displayImage(selectedFile);
             }
+        });
 
-            // Read file data
-            FileInputStream fis = new FileInputStream(file);
-            byte[] fileData = fis.readAllBytes();
-            fis.close();
+        operateButton.addActionListener(e -> {
+            String key = keyField.getText();
+            if (key.length() != 16) {
+                JOptionPane.showMessageDialog(null, "Key must be 16 characters long", "Error", JOptionPane.ERROR_MESSAGE);
+                return;
+            }
+            operate(key, encryptButton.isSelected(), overrideCheckBox.isSelected());
+            displayImage(selectedFile);
+        });
 
-            // Perform encryption or decryption
-            byte[] outputData = cipher.doFinal(fileData);
+        loadKeyButton.addActionListener(e -> {
+            JFileChooser fileChooser = new JFileChooser();
+            if (fileChooser.showOpenDialog(null) == JFileChooser.APPROVE_OPTION) {
+                File keyFile = fileChooser.getSelectedFile();
+                try (BufferedReader br = new BufferedReader(new FileReader(keyFile))) {
+                    keyField.setText(br.readLine());
+                } catch (IOException ex) {
+                    ex.printStackTrace();
+                }
+            }
+        });
+    }
 
-            // Write back the processed data
-            FileOutputStream fos = new FileOutputStream(file);
-            fos.write(outputData);
-            fos.close();
-
-            JOptionPane.showMessageDialog(null, "Operation completed!");
+    private void displayImage(File file) {
+        try {
+            ImageIcon imageIcon = new ImageIcon(file.getAbsolutePath());
+            imageLabel.setIcon(imageIcon);
         } catch (Exception e) {
-            JOptionPane.showMessageDialog(null, "Error: " + e.getMessage());
             e.printStackTrace();
         }
     }
 
+    private void operate(String key, boolean encrypt, boolean override) {
+        try {
+            FileInputStream fis = new FileInputStream(selectedFile);
+            byte[] data = new byte[fis.available()];
+            fis.read(data);
+            fis.close();
+
+            byte[] result;
+            byte[] keyBytes = key.getBytes();
+            if (encrypt) {
+                result = encrypt(data, keyBytes);
+                saveKeyToFile(key);
+            } else {
+                result = decrypt(data, keyBytes);
+            }
+
+            File outputFile = selectedFile;
+            if (!override) {
+                JFileChooser saveFileChooser = new JFileChooser();
+                saveFileChooser.setSelectedFile(new File(selectedFile.getParent(), "output_" + selectedFile.getName()));
+                if (saveFileChooser.showSaveDialog(null) == JFileChooser.APPROVE_OPTION) {
+                    outputFile = saveFileChooser.getSelectedFile();
+                }
+            }
+
+            FileOutputStream fos = new FileOutputStream(outputFile);
+            fos.write(result);
+            fos.close();
+
+            JOptionPane.showMessageDialog(null, "Done");
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+    }
+
+    private void saveKeyToFile(String key) {
+        JFileChooser fileChooser = new JFileChooser();
+        fileChooser.setSelectedFile(new File("key.txt"));
+        if (fileChooser.showSaveDialog(null) == JFileChooser.APPROVE_OPTION) {
+            File keyFile = fileChooser.getSelectedFile();
+            try (BufferedWriter bw = new BufferedWriter(new FileWriter(keyFile))) {
+                bw.write(key);
+            } catch (IOException e) {
+                e.printStackTrace();
+            }
+        }
+    }
+
+    public static byte[] encrypt(byte[] data, byte[] key) throws Exception {
+        SecretKeySpec secretKey = new SecretKeySpec(key, "AES");
+        Cipher cipher = Cipher.getInstance("AES");
+        cipher.init(Cipher.ENCRYPT_MODE, secretKey);
+        return cipher.doFinal(data);
+    }
+
+    public static byte[] decrypt(byte[] data, byte[] key) throws Exception {
+        SecretKeySpec secretKey = new SecretKeySpec(key, "AES");
+        Cipher cipher = Cipher.getInstance("AES");
+        cipher.init(Cipher.DECRYPT_MODE, secretKey);
+        return cipher.doFinal(data);
+    }
+
+    public static String generateRandomKey() {
+        try {
+            KeyGenerator keyGen = KeyGenerator.getInstance("AES");
+            keyGen.init(128); // 128-bit key
+            SecretKey secretKey = keyGen.generateKey();
+            return Base64.getEncoder().encodeToString(secretKey.getEncoded()).substring(0, 16);
+        } catch (NoSuchAlgorithmException e) {
+            e.printStackTrace();
+            return null;
+        }
+    }
+
     public static void main(String[] args) {
-        System.out.println("Hello world");
-        JFrame frame = new JFrame();
-        frame.setTitle("Image Operation");
-        frame.setSize(400, 400);
-        frame.setLocationRelativeTo(null);
-        frame.setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
-
-        // Font
-        Font font = new Font("Roboto", Font.BOLD, 20);
-
-        // Buttons
-        JButton encryptButton = new JButton("Encrypt Image");
-        encryptButton.setFont(font);
-
-        JButton decryptButton = new JButton("Decrypt Image");
-        decryptButton.setFont(font);
-
-        // Text field
-        JTextField keyField = new JTextField(16); // AES key must be 16 characters (128 bits)
-        keyField.setFont(font);
-
-        encryptButton.addActionListener(e -> {
-            System.out.println("Encrypt button clicked");
-            String key = keyField.getText();
-            if (key.length() != 16) {
-                JOptionPane.showMessageDialog(null, "Key must be 16 characters long!");
-                return;
-            }
-            operateAES(key, true);
-        });
-
-        decryptButton.addActionListener(e -> {
-            System.out.println("Decrypt button clicked");
-            String key = keyField.getText();
-            if (key.length() != 16) {
-                JOptionPane.showMessageDialog(null, "Key must be 16 characters long!");
-                return;
-            }
-            operateAES(key, false);
-        });
-
-        frame.setLayout(new FlowLayout());
-        frame.add(new JLabel("Enter AES Key:"));
-        frame.add(keyField);
-        frame.add(encryptButton);
-        frame.add(decryptButton);
-
-        frame.setVisible(true);
+        SwingUtilities.invokeLater(() -> new ImageSearchGUI().setVisible(true));
     }
 }
