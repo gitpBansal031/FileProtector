@@ -11,11 +11,13 @@ import java.util.Base64;
 public class main extends JFrame {
     private JTextField keyField;
     private JLabel imageLabel;
+    private JLabel folderLabel;
     private File[] selectedFiles;
     private JRadioButton encryptButton;
     private JRadioButton decryptButton;
     private JCheckBox overrideCheckBox;
     private JProgressBar progressBar;
+    private JDialog progressDialog;
 
     public main() {
         setTitle("Image Search GUI");
@@ -41,8 +43,8 @@ public class main extends JFrame {
 
         overrideCheckBox = new JCheckBox("Override Existing Files");
 
-        progressBar = new JProgressBar(0, 100);
-        progressBar.setStringPainted(true);
+        folderLabel = new JLabel();
+        folderLabel.setIcon(UIManager.getIcon("FileView.directoryIcon"));
 
         topPanel.add(keyLabel);
         topPanel.add(keyField);
@@ -54,7 +56,7 @@ public class main extends JFrame {
         topPanel.add(operateButton);
 
         add(topPanel, BorderLayout.NORTH);
-        add(progressBar, BorderLayout.SOUTH);
+        add(folderLabel, BorderLayout.WEST);
 
         imageLabel = new JLabel();
         add(new JScrollPane(imageLabel), BorderLayout.CENTER);
@@ -67,6 +69,9 @@ public class main extends JFrame {
             fileChooser.setFileSelectionMode(JFileChooser.FILES_AND_DIRECTORIES);
             if (fileChooser.showOpenDialog(null) == JFileChooser.APPROVE_OPTION) {
                 selectedFiles = fileChooser.getSelectedFiles();
+                if (selectedFiles.length > 0) {
+                    folderLabel.setText(selectedFiles[0].getParent());
+                }
             }
         });
 
@@ -76,6 +81,7 @@ public class main extends JFrame {
                 JOptionPane.showMessageDialog(null, "Key must be 16 characters long", "Error", JOptionPane.ERROR_MESSAGE);
                 return;
             }
+            showProgressDialog();
             new Thread(() -> operate(key, encryptButton.isSelected(), overrideCheckBox.isSelected())).start();
         });
     }
@@ -112,7 +118,10 @@ public class main extends JFrame {
                 }
             }
 
-            JOptionPane.showMessageDialog(null, "Done");
+            SwingUtilities.invokeLater(() -> {
+                JOptionPane.showMessageDialog(progressDialog, "Operation completed successfully");
+                progressDialog.dispose();
+            });
         } catch (Exception e) {
             e.printStackTrace();
         }
@@ -148,7 +157,16 @@ public class main extends JFrame {
 
         File outputFile = file;
         if (!override) {
-            outputFile = new File(file.getParent(), "output_" + file.getName());
+            JFileChooser fileChooser = new JFileChooser();
+            fileChooser.setSelectedFile(new File(file.getParent(), "output_" + file.getName()));
+            if (fileChooser.showSaveDialog(null) == JFileChooser.APPROVE_OPTION) {
+                outputFile = fileChooser.getSelectedFile();
+                // Ensure the correct file extension
+                if (!outputFile.getName().contains(".")) {
+                    String extension = getFileExtension(file);
+                    outputFile = new File(outputFile.getAbsolutePath() + extension);
+                }
+            }
         }
 
         FileOutputStream fos = new FileOutputStream(outputFile);
@@ -156,9 +174,44 @@ public class main extends JFrame {
         fos.close();
     }
 
+    private String getFileExtension(File file) {
+        String name = file.getName();
+        int lastIndexOf = name.lastIndexOf(".");
+        if (lastIndexOf == -1) {
+            return ""; // empty extension
+        }
+        return name.substring(lastIndexOf);
+    }
+
     private void updateProgress(int processedFiles, int totalFiles) {
         int progress = (int) ((double) processedFiles / totalFiles * 100);
         SwingUtilities.invokeLater(() -> progressBar.setValue(progress));
+    }
+
+    private void showProgressDialog() {
+        progressDialog = new JDialog(this, "Progress", true);
+        progressDialog.setLayout(new BorderLayout());
+        progressBar = new JProgressBar(0, 100);
+        progressBar.setStringPainted(true);
+        progressBar.setForeground(Color.BLUE);
+        progressDialog.add(progressBar, BorderLayout.CENTER);
+        progressDialog.setSize(300, 100);
+        progressDialog.setLocationRelativeTo(this);
+
+        // Create a new thread to update the progress bar
+        new Thread(() -> {
+            for (int i = 0; i <= 100; i++) {
+                final int progress = i;
+                SwingUtilities.invokeLater(() -> progressBar.setValue(progress));
+                try {
+                    Thread.sleep(50); // Adjust the sleep time for smoother animation
+                } catch (InterruptedException e) {
+                    e.printStackTrace();
+                }
+            }
+        }).start();
+
+        progressDialog.setVisible(true);
     }
 
     public static byte[] encrypt(byte[] data, byte[] key) throws Exception {
