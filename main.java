@@ -1,4 +1,3 @@
-
 import javax.crypto.Cipher;
 import javax.crypto.KeyGenerator;
 import javax.crypto.SecretKey;
@@ -12,10 +11,11 @@ import java.util.Base64;
 public class main extends JFrame {
     private JTextField keyField;
     private JLabel imageLabel;
-    private File selectedFile;
+    private File[] selectedFiles;
     private JRadioButton encryptButton;
     private JRadioButton decryptButton;
     private JCheckBox overrideCheckBox;
+    private JProgressBar progressBar;
 
     public main() {
         setTitle("Image Search GUI");
@@ -29,9 +29,8 @@ public class main extends JFrame {
         JLabel keyLabel = new JLabel("Key:");
         keyField = new JTextField(16);
         JButton randomKeyButton = new JButton("Randomize Key");
-        JButton selectFileButton = new JButton("Select File");
+        JButton selectFilesButton = new JButton("Select Files");
         JButton operateButton = new JButton("Operate");
-        JButton loadKeyButton = new JButton("Load Key");
 
         encryptButton = new JRadioButton("Encrypt");
         decryptButton = new JRadioButton("Decrypt");
@@ -40,30 +39,34 @@ public class main extends JFrame {
         group.add(decryptButton);
         encryptButton.setSelected(true);
 
-        overrideCheckBox = new JCheckBox("Override Existing File");
+        overrideCheckBox = new JCheckBox("Override Existing Files");
+
+        progressBar = new JProgressBar(0, 100);
+        progressBar.setStringPainted(true);
 
         topPanel.add(keyLabel);
         topPanel.add(keyField);
         topPanel.add(randomKeyButton);
-        topPanel.add(selectFileButton);
+        topPanel.add(selectFilesButton);
         topPanel.add(encryptButton);
         topPanel.add(decryptButton);
         topPanel.add(overrideCheckBox);
         topPanel.add(operateButton);
-        topPanel.add(loadKeyButton);
 
         add(topPanel, BorderLayout.NORTH);
+        add(progressBar, BorderLayout.SOUTH);
 
         imageLabel = new JLabel();
         add(new JScrollPane(imageLabel), BorderLayout.CENTER);
 
         randomKeyButton.addActionListener(e -> keyField.setText(generateRandomKey()));
 
-        selectFileButton.addActionListener(e -> {
+        selectFilesButton.addActionListener(e -> {
             JFileChooser fileChooser = new JFileChooser();
+            fileChooser.setMultiSelectionEnabled(true);
+            fileChooser.setFileSelectionMode(JFileChooser.FILES_AND_DIRECTORIES);
             if (fileChooser.showOpenDialog(null) == JFileChooser.APPROVE_OPTION) {
-                selectedFile = fileChooser.getSelectedFile();
-                displayImage(selectedFile);
+                selectedFiles = fileChooser.getSelectedFiles();
             }
         });
 
@@ -73,20 +76,7 @@ public class main extends JFrame {
                 JOptionPane.showMessageDialog(null, "Key must be 16 characters long", "Error", JOptionPane.ERROR_MESSAGE);
                 return;
             }
-            operate(key, encryptButton.isSelected(), overrideCheckBox.isSelected());
-            displayImage(selectedFile);
-        });
-
-        loadKeyButton.addActionListener(e -> {
-            JFileChooser fileChooser = new JFileChooser();
-            if (fileChooser.showOpenDialog(null) == JFileChooser.APPROVE_OPTION) {
-                File keyFile = fileChooser.getSelectedFile();
-                try (BufferedReader br = new BufferedReader(new FileReader(keyFile))) {
-                    keyField.setText(br.readLine());
-                } catch (IOException ex) {
-                    ex.printStackTrace();
-                }
-            }
+            new Thread(() -> operate(key, encryptButton.isSelected(), overrideCheckBox.isSelected())).start();
         });
     }
 
@@ -101,32 +91,26 @@ public class main extends JFrame {
 
     private void operate(String key, boolean encrypt, boolean override) {
         try {
-            FileInputStream fis = new FileInputStream(selectedFile);
-            byte[] data = new byte[fis.available()];
-            fis.read(data);
-            fis.close();
-
-            byte[] result;
             byte[] keyBytes = key.getBytes();
-            if (encrypt) {
-                result = encrypt(data, keyBytes);
-                saveKeyToFile(key);
-            } else {
-                result = decrypt(data, keyBytes);
-            }
+            int totalFiles = countFiles(selectedFiles);
+            int processedFiles = 0;
 
-            File outputFile = selectedFile;
-            if (!override) {
-                JFileChooser saveFileChooser = new JFileChooser();
-                saveFileChooser.setSelectedFile(new File(selectedFile.getParent(), "output_" + selectedFile.getName()));
-                if (saveFileChooser.showSaveDialog(null) == JFileChooser.APPROVE_OPTION) {
-                    outputFile = saveFileChooser.getSelectedFile();
+            for (File file : selectedFiles) {
+                if (file.isDirectory()) {
+                    File[] filesInDir = file.listFiles();
+                    if (filesInDir != null) {
+                        for (File f : filesInDir) {
+                            processFile(f, keyBytes, encrypt, override);
+                            processedFiles++;
+                            updateProgress(processedFiles, totalFiles);
+                        }
+                    }
+                } else {
+                    processFile(file, keyBytes, encrypt, override);
+                    processedFiles++;
+                    updateProgress(processedFiles, totalFiles);
                 }
             }
-
-            FileOutputStream fos = new FileOutputStream(outputFile);
-            fos.write(result);
-            fos.close();
 
             JOptionPane.showMessageDialog(null, "Done");
         } catch (Exception e) {
@@ -134,17 +118,47 @@ public class main extends JFrame {
         }
     }
 
-    private void saveKeyToFile(String key) {
-        JFileChooser fileChooser = new JFileChooser();
-        fileChooser.setSelectedFile(new File("key.txt"));
-        if (fileChooser.showSaveDialog(null) == JFileChooser.APPROVE_OPTION) {
-            File keyFile = fileChooser.getSelectedFile();
-            try (BufferedWriter bw = new BufferedWriter(new FileWriter(keyFile))) {
-                bw.write(key);
-            } catch (IOException e) {
-                e.printStackTrace();
+    private int countFiles(File[] files) {
+        int count = 0;
+        for (File file : files) {
+            if (file.isDirectory()) {
+                File[] filesInDir = file.listFiles();
+                if (filesInDir != null) {
+                    count += filesInDir.length;
+                }
+            } else {
+                count++;
             }
         }
+        return count;
+    }
+
+    private void processFile(File file, byte[] keyBytes, boolean encrypt, boolean override) throws Exception {
+        FileInputStream fis = new FileInputStream(file);
+        byte[] data = new byte[fis.available()];
+        fis.read(data);
+        fis.close();
+
+        byte[] result;
+        if (encrypt) {
+            result = encrypt(data, keyBytes);
+        } else {
+            result = decrypt(data, keyBytes);
+        }
+
+        File outputFile = file;
+        if (!override) {
+            outputFile = new File(file.getParent(), "output_" + file.getName());
+        }
+
+        FileOutputStream fos = new FileOutputStream(outputFile);
+        fos.write(result);
+        fos.close();
+    }
+
+    private void updateProgress(int processedFiles, int totalFiles) {
+        int progress = (int) ((double) processedFiles / totalFiles * 100);
+        SwingUtilities.invokeLater(() -> progressBar.setValue(progress));
     }
 
     public static byte[] encrypt(byte[] data, byte[] key) throws Exception {
